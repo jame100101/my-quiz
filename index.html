@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>智能刷题系统 - 计算机网络</title>
+    <style>
+        :root { --primary: #3498db; --success: #2ecc71; --danger: #e74c3c; --bg: #f5f7fa; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: var(--bg); padding: 20px; color: #333; }
+        .container { max-width: 800px; margin: auto; background: #fff; padding: 30px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+        .header { border-bottom: 2px solid #eee; margin-bottom: 20px; padding-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+        textarea { width: 100%; height: 80px; margin: 10px 0; border: 1px solid #ddd; border-radius: 6px; padding: 10px; font-size: 14px; }
+        .btn { background: var(--primary); color: white; border: none; padding: 10px 20px; cursor: pointer; border-radius: 6px; font-weight: bold; transition: 0.2s; }
+        .btn-reset { background: #95a5a6; margin-left: 10px; }
+        .btn:hover { opacity: 0.9; transform: translateY(-1px); }
+        .score-board { background: #ebf5ff; padding: 15px; border-radius: 8px; margin-bottom: 20px; display: flex; justify-content: space-around; font-size: 15px; }
+        .question-card { animation: fadeIn 0.4s; }
+        .q-title { font-size: 18px; margin-bottom: 20px; color: #2c3e50; }
+        .option { display: block; padding: 15px; margin: 10px 0; border: 2px solid #edf2f7; border-radius: 8px; cursor: pointer; transition: all 0.2s; position: relative; }
+        .option:hover { border-color: var(--primary); background: #f8fbff; }
+        .correct { background: #d4edda !important; border-color: var(--success) !important; color: #155724; font-weight: bold; }
+        .wrong { background: #f8d7da !important; border-color: var(--danger) !important; color: #721c24; }
+        .analysis { margin-top: 20px; padding: 20px; background: #fff9db; border-left: 5px solid #f1c40f; display: none; border-radius: 4px; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .controls { margin-top: 20px; display: flex; gap: 10px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header">
+        <h2>计算机网络刷题</h2>
+        <button class="btn btn-reset" onclick="clearAll()">清空所有进度</button>
+    </div>
+    
+    <div id="import-box" class="import-area">
+        <label>数据导入 (JSON 格式):</label>
+        <textarea id="jsonInput" placeholder="在此粘贴题目数据..."></textarea>
+        <button class="btn" onclick="importData()">开始/更新题库</button>
+    </div>
+
+    <div id="quiz-container" style="display:none;">
+        <div class="score-board">
+            <div>进度: <span id="cur-idx">0</span> / <span id="total-idx">0</span></div>
+            <div>得分: <span id="score-val">0</span></div>
+            <div>正确率: <span id="accuracy">0%</span></div>
+        </div>
+
+        <div class="question-card">
+            <div class="q-title" id="q-text"></div>
+            <div id="options-box"></div>
+            <div id="analysis-box" class="analysis"></div>
+            <div class="controls">
+                <button class="btn" id="next-btn" style="display:none;" onclick="nextQuestion()">下一题</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let questions = [];
+    let currentIndex = 0;
+    let score = 0;
+
+    // 页面加载时尝试读取进度
+    window.onload = () => {
+        const savedData = localStorage.getItem('quiz_data');
+        const savedIndex = localStorage.getItem('quiz_index');
+        const savedScore = localStorage.getItem('quiz_score');
+
+        if (savedData) {
+            questions = JSON.parse(savedData);
+            currentIndex = parseInt(savedIndex) || 0;
+            score = parseInt(savedScore) || 0;
+            
+            if (currentIndex >= questions.length) {
+                alert("你已完成所有题目！点击清空进度可重新开始。");
+                currentIndex = 0; score = 0;
+            }
+            
+            document.getElementById('quiz-container').style.display = 'block';
+            document.getElementById('import-box').style.display = 'none';
+            showQuestion();
+        }
+    };
+
+    function importData() {
+        try {
+            const input = document.getElementById('jsonInput').value;
+            const data = JSON.parse(input);
+            if(Array.isArray(data)) {
+                questions = data;
+                localStorage.setItem('quiz_data', JSON.stringify(data));
+                saveProgress();
+                location.reload(); // 刷新以启动题库
+            }
+        } catch(e) { alert("JSON 格式错误，请检查！"); }
+    }
+
+    function showQuestion() {
+        const q = questions[currentIndex];
+        document.getElementById('q-text').innerHTML = `<strong>[第 ${currentIndex + 1} 题]</strong> ${q.q}`;
+        const optBox = document.getElementById('options-box');
+        optBox.innerHTML = '';
+        
+        q.a.forEach((opt, index) => {
+            const div = document.createElement('div');
+            div.className = 'option';
+            div.innerText = opt;
+            div.onclick = () => checkAnswer(index, q.ok, div);
+            optBox.appendChild(div);
+        });
+
+        document.getElementById('analysis-box').style.display = 'none';
+        document.getElementById('next-btn').style.display = 'none';
+        updateUI();
+    }
+
+    function checkAnswer(selected, correct, element) {
+        if (document.getElementById('next-btn').style.display === 'block') return;
+
+        const options = document.getElementsByClassName('option');
+        if (selected === correct) {
+            element.classList.add('correct');
+            score++;
+        } else {
+            element.classList.add('wrong');
+            options[correct].classList.add('correct');
+        }
+
+        const analysis = document.getElementById('analysis-box');
+        analysis.style.display = 'block';
+        analysis.innerHTML = `<strong>正确答案：${questions[currentIndex].a[correct]}</strong><br><br>解析：${questions[currentIndex].exp || '暂无解析'}`;
+        
+        document.getElementById('next-btn').style.display = 'block';
+        saveProgress();
+        updateUI();
+    }
+
+    function nextQuestion() {
+        currentIndex++;
+        if (currentIndex < questions.length) {
+            saveProgress();
+            showQuestion();
+        } else {
+            alert(`恭喜！你已完成所有题目。最终得分：${score}`);
+            clearAll();
+        }
+    }
+
+    function saveProgress() {
+        localStorage.setItem('quiz_index', currentIndex);
+        localStorage.setItem('quiz_score', score);
+    }
+
+    function updateUI() {
+        document.getElementById('cur-idx').innerText = currentIndex + 1;
+        document.getElementById('total-idx').innerText = questions.length;
+        document.getElementById('score-val').innerText = score;
+        const rate = currentIndex === 0 ? 0 : Math.round((score / (currentIndex + (document.getElementById('next-btn').style.display === 'block' ? 1 : 0))) * 100);
+        document.getElementById('accuracy').innerText = rate + '%';
+    }
+
+    function clearAll() {
+        if(confirm("确定要清空所有题目和进度吗？")) {
+            localStorage.clear();
+            location.reload();
+        }
+    }
+</script>
+
+</body>
+</html>
