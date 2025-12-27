@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>计网刷题专业版</title>
     <style>
-        /* 这里保留你原来的 CSS 样式 */
         :root { --primary: #3498db; --success: #2ecc71; --danger: #e74c3c; --bg: #f0f2f5; }
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body { font-family: -apple-system, system-ui, sans-serif; background: var(--bg); margin: 0; padding: 10px; }
@@ -17,11 +16,33 @@
         .correct { background: #d4edda !important; border-color: var(--success) !important; color: #155724; font-weight: bold; }
         .wrong { background: #f8d7da !important; border-color: var(--danger) !important; color: #721c24; }
         .analysis { margin-top: 20px; padding: 15px; background: #fff9db; border-radius: 10px; border-left: 5px solid #f1c40f; display: none; font-size: 14px; line-height: 1.6; }
-        .nav-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 20px; }
-        .btn { padding: 12px; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; font-size: 15px; }
+        .nav-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+        .btn { padding: 12px; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; font-size: 15px; text-align: center; }
         .btn-primary { background: var(--primary); color: white; }
         .btn-wrong-set { background: #f39c12; color: white; }
+        .btn-list { background: #673ab7; color: white; grid-column: span 2; }
         .btn-reset { background: #95a5a6; color: white; padding: 5px 10px; font-size: 12px; }
+        
+        /* 题目列表样式 */
+        #question-list { 
+            display: none; 
+            max-height: 300px; 
+            overflow-y: auto; 
+            background: #f9f9f9; 
+            border: 1px solid #ddd; 
+            border-radius: 10px; 
+            margin-top: 15px; 
+            padding: 10px; 
+        }
+        .list-item { 
+            padding: 10px; 
+            border-bottom: 1px solid #eee; 
+            cursor: pointer; 
+            font-size: 14px; 
+            color: #666;
+        }
+        .list-item:hover { background: #eef7ff; }
+        .list-item.active { color: var(--primary); font-weight: bold; background: #eef7ff; border-left: 4px solid var(--primary); }
     </style>
 </head>
 <body>
@@ -37,15 +58,20 @@
         <div>正确率: <span id="accuracy">0%</span></div>
         <div>得分: <span id="score">0</span></div>
     </div>
+
     <div id="quiz-area">
         <div id="question" class="q-text">正在加载题目...</div>
         <div id="options"></div>
         <div id="explanation" class="analysis"></div>
     </div>
+
     <div class="nav-btns">
+        <button class="btn btn-list" onclick="toggleList()">查看题目列表 / 跳转</button>
         <button id="wrong-btn" class="btn btn-wrong-set" onclick="toggleMode()">进入错题集</button>
         <button id="next-btn" class="btn btn-primary" onclick="nextQ()" disabled>下一题</button>
     </div>
+
+    <div id="question-list"></div>
 </div>
 
 <script src="questions.js"></script>
@@ -54,11 +80,11 @@
     let currentPool = [];
     let currentIndex = 0;
     let score = 0;
+    let totalAttempted = 0; // 新增：用于记录总答题数，方便跨跳转计算正确率
     let wrongSet = JSON.parse(localStorage.getItem('wrong_set')) || [];
     let isWrongMode = false;
 
     function init() {
-        // 这里的 allQuestions 变量是从 questions.js 中获取的
         if (typeof allQuestions === 'undefined' || allQuestions.length === 0) {
             document.getElementById('question').innerText = "找不到题库文件或数据为空！请检查 questions.js 文件。";
             return;
@@ -83,17 +109,25 @@
             btn.onclick = () => check(i, q.ok, btn);
             optionsDiv.appendChild(btn);
         });
+        
+        // 每次显示题目时，如果列表是打开的，同步高亮
+        if (document.getElementById('question-list').style.display === 'block') {
+            renderList();
+        }
     }
 
     function check(selected, correct, el) {
         if (!document.getElementById('next-btn').disabled) return;
         const opts = document.getElementsByClassName('option');
+        totalAttempted++;
+        
         if (selected === correct) {
             el.classList.add('correct');
             score++;
         } else {
             el.classList.add('wrong');
             opts[correct].classList.add('correct');
+            // 存入错题本
             if (!wrongSet.find(x => x.q === currentPool[currentIndex].q)) {
                 wrongSet.push(currentPool[currentIndex]);
                 localStorage.setItem('wrong_set', JSON.stringify(wrongSet));
@@ -114,14 +148,53 @@
             alert(isWrongMode ? "复习完成！" : "全题库练习完成！");
             currentIndex = 0; 
             if(isWrongMode) toggleMode();
-            else { score = 0; showQuestion(); }
+            else { score = 0; totalAttempted = 0; showQuestion(); }
         }
+        updateStats();
+    }
+
+    // --- 新增：题目列表功能 ---
+    function toggleList() {
+        const listDiv = document.getElementById('question-list');
+        if (listDiv.style.display === 'block') {
+            listDiv.style.display = 'none';
+        } else {
+            listDiv.style.display = 'block';
+            renderList();
+        }
+    }
+
+    function renderList() {
+        const listDiv = document.getElementById('question-list');
+        listDiv.innerHTML = '<h4 style="margin:0 0 10px 0; color:#333;">题目快捷跳转</h4>';
+        
+        currentPool.forEach((item, index) => {
+            const div = document.createElement('div');
+            div.className = `list-item ${index === currentIndex ? 'active' : ''}`;
+            
+            // 截取题目预览
+            const preview = item.q.length > 25 ? item.q.substring(0, 25) + '...' : item.q;
+            div.innerHTML = `<span>${index + 1}. ${preview}</span>`;
+            
+            div.onclick = () => {
+                currentIndex = index;
+                showQuestion();
+                updateStats();
+                // 可选：点击后自动关闭列表
+                // listDiv.style.display = 'none';
+            };
+            listDiv.appendChild(div);
+        });
     }
 
     function toggleMode() {
         isWrongMode = !isWrongMode;
         if (isWrongMode) {
-            if (wrongSet.length === 0) { alert("暂无错题记录！"); isWrongMode = false; return; }
+            if (wrongSet.length === 0) { 
+                alert("暂无错题记录！"); 
+                isWrongMode = false; 
+                return; 
+            }
             currentPool = [...wrongSet];
             document.getElementById('mode-title').innerText = "🔴 错题复习";
             document.getElementById('wrong-btn').innerText = "返回全题库";
@@ -130,15 +203,19 @@
             document.getElementById('mode-title').innerText = "全题库模式";
             document.getElementById('wrong-btn').innerText = "进入错题集";
         }
-        currentIndex = 0; score = 0; showQuestion(); updateStats();
+        currentIndex = 0; 
+        score = 0; 
+        totalAttempted = 0;
+        showQuestion(); 
+        updateStats();
     }
 
     function updateStats() {
         document.getElementById('progress').innerText = `${currentIndex + 1}/${currentPool.length}`;
         document.getElementById('wrong-count').innerText = wrongSet.length;
         document.getElementById('score').innerText = score;
-        const totalDone = currentIndex + (document.getElementById('next-btn').disabled ? 0 : 1);
-        const acc = totalDone === 0 ? 0 : Math.round(score/totalDone*100);
+        
+        const acc = totalAttempted === 0 ? 0 : Math.round(score / totalAttempted * 100);
         document.getElementById('accuracy').innerText = acc + '%';
     }
 
